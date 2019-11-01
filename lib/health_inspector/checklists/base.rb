@@ -3,6 +3,7 @@ require 'pathname'
 require 'ffi_yajl'
 require 'parallel'
 require 'inflecto'
+require 'json'
 
 module HealthInspector
   module Checklists
@@ -47,34 +48,30 @@ module HealthInspector
         (server_items + local_items).uniq.sort
       end
 
-      def load_validate(name)
-        item = load_item(name)
-        validate_item(item)
-      end
-
       def run
-        banner "Inspecting #{self.class.title}"
+        banner "Inspecting #{self.class.title}" unless format_json?
 
-        results = Parallel.map(all_item_names) do |name|
-          load_validate(name)
+        results = []
+        items = [] if format_json?
+
+        finish = lambda do |_, _, item|
+         format_json? ? items << item.to_h : print_item(item)
+         results << item.errors.empty?
         end
+
+        Parallel.each(all_item_names, finish: finish) do |name|
+          item = load_item(name).tap(&:validate)
+          OpenStruct.new(name: item.name, server: item.server, local: item.local, errors: item.errors.to_a)
+        end
+
+        puts JSON.pretty_generate(items) if format_json?
 
         !results.include?(false)
       end
 
-      def validate_item(item)
-        item.validate
-        failures = item.errors
-
-        if failures.empty?
-          print_success(item.name)
-
-          true
-        else
-          print_failures(item.name, failures)
-
-          false
-        end
+      def print_item(item)
+       failures = item.errors
+       failures.empty? ? print_success(item.name) : print_failures(item.name, failures)
       end
 
       def banner(message)
@@ -167,6 +164,10 @@ module HealthInspector
         else
           chef_class.from_hash(parsed_json)
         end
+      end
+
+      def format_json?
+        @context.knife.config[:format] != 'json'
       end
     end
   end
