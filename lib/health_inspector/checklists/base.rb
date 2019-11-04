@@ -167,7 +167,7 @@ module HealthInspector
       end
 
       def format_json?
-        @context.knife.config[:format] != 'json'
+        @context.knife.config[:format] == 'json'
       end
     end
   end
